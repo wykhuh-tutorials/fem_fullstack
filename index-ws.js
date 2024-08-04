@@ -13,6 +13,20 @@ server.on('request', app);
 
 server.listen(PORT, function () { console.log('Listening on http://localhost:' + PORT); });
 
+// when server closes, shutdown websocket and database
+process.on('SIGINT', () => {
+  console.log('shutting down server')
+
+  wss.clients.forEach(function each(client) {
+    console.log('shutting down websocket')
+    client.close();
+  })
+
+  server.close(() => {
+    shutdownDB();
+  })
+})
+
 /** Websocket **/
 const WebSocketServer = require('ws').Server;
 
@@ -29,6 +43,10 @@ wss.on('connection', function connection(ws) {
   if (ws.readyState === ws.OPEN) {
     ws.send('welcome!');
   }
+
+  db.run(`INSERT INTO visitors (count, time)
+    VALUES (${numClients}, datetime('now'))
+  `)
 
   // when websocket  connection is closed
   ws.on('close', function close() {
@@ -53,3 +71,31 @@ wss.broadcast = function broadcast(data) {
   });
 };
 /** End Websocket **/
+
+/** begin database */
+
+const sqlite = require('sqlite3')
+
+// create database in memory. if server restarts, db is destroyed
+const db = new sqlite.Database(':memory:')
+
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE visitors (
+      count INTEGER,
+      time TEXT
+    )
+  `)
+})
+
+function getCounts() {
+  db.each("SELECT * FROM visitors", (err, row) => {
+    console.log(row)
+  })
+}
+
+function shutdownDB() {
+  getCounts();
+  console.log('shutting down db')
+  db.close()
+}
